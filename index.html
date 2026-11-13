@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0f111c" />
+  <title>超级马里奥：橡果王国大冒险 | Super Mario Pixel Adventure</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-badge">16-BIT PIXEL</span>
+        <h1>超级马里奥：橡果王国大冒险</h1>
+      </div>
+      <div class="top-actions">
+        <button id="btn-unlock-all" class="ui-btn" title="解锁或恢复全部关卡进度">全关解锁: 关</button>
+        <button id="btn-mute" class="ui-btn" title="切换音效/音乐 (M)">声音: 开</button>
+        <button id="btn-touch-toggle" class="ui-btn" title="显示/隐藏虚拟手柄">虚拟按键</button>
+        <button id="btn-help" class="ui-btn" title="查看操作与玩法说明 (H)">玩法指南</button>
+        <button id="btn-fullscreen" class="ui-btn" title="全屏模式 (F)">全屏</button>
+      </div>
+    </header>
+
+    <main class="stage-wrap">
+      <div id="canvas-frame" class="canvas-frame">
+        <canvas id="game-canvas" width="480" height="272"></canvas>
+        <div id="scanline-overlay" class="scanline-overlay hidden"></div>
+      </div>
+
+      <!-- Ergonomic Multi-Touch Virtual Gamepad (auto-shown on mobile/touch or toggled via button) -->
+      <div id="virtual-controls" class="virtual-controls hidden" aria-hidden="true">
+        <div class="vpad-dpad">
+          <button class="vbtn vbtn-up" data-key="up" aria-label="上">▲</button>
+          <button class="vbtn vbtn-left" data-key="left" aria-label="左">◀</button>
+          <button class="vbtn vbtn-down" data-key="down" aria-label="下">▼</button>
+          <button class="vbtn vbtn-right" data-key="right" aria-label="右">▶</button>
+        </div>
+        <div class="vpad-actions">
+          <div class="vpad-aux">
+            <button class="vbtn vbtn-mini" data-key="pause" aria-label="暂停">⏸</button>
+            <button class="vbtn vbtn-small" data-key="reserve" aria-label="备用道具">道具</button>
+          </div>
+          <div class="vpad-main">
+            <button class="vbtn vbtn-action" data-key="run" aria-label="冲刺/攻击">冲/攻</button>
+            <button class="vbtn vbtn-jump" data-key="jump" aria-label="跳跃/确认">跳</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="control-strip">
+      <span><kbd>A/D</kbd> 或 <kbd>←/→</kbd> 移动</span>
+      <span><kbd>W/Space/K/Z</kbd> 跳跃 / 蹬墙跳 / 滑翔</span>
+      <span><kbd>Shift/J/X</kbd> 加速冲刺 / 火球 / 橡果尾击</span>
+      <span><kbd>S/↓</kbd> 下蹲 / 进水管 / 空中下砸</span>
+      <span><kbd>E/C</kbd> 释放备用道具</span>
+      <span><kbd>P/Esc</kbd> 暂停</span>
+    </footer>
+  </div>
+
+  <!-- Portrait Mobile Suggestion Banner -->
+  <div id="rotate-banner" class="rotate-banner hidden">
+    <div class="rotate-card">
+      <div class="rotate-icon">📱↻</div>
+      <h2>推荐手机横屏游玩</h2>
+      <p>旋转手机进入横屏后，画面与左右拇指按键会自动铺满适配，手感更佳！</p>
+      <div class="rotate-actions">
+        <button id="btn-enter-landscape" class="ui-btn active">尝试横屏全屏</button>
+        <button id="btn-dismiss-rotate" class="ui-btn">竖屏继续</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help & Controls Modal -->
+  <div id="help-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="help-title">游戏操作与玩法指南</h2>
+        <button id="btn-close-help" class="ui-btn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="help-grid">
+          <section class="help-box">
+            <h3>基础与进阶动作</h3>
+            <ul>
+              <li><strong>移动 / 急停：</strong> <kbd>A</kbd><kbd>D</kbd> 或 <kbd>←</kbd><kbd>→</kbd>（触屏滑动左侧方向键）</li>
+              <li><strong>可变高度跳跃：</strong> 轻点短跳，长按 <kbd>Space</kbd>/<kbd>W</kbd>/<kbd>Z</kbd>/<kbd>K</kbd> 或「跳」高跳</li>
+              <li><strong>冲刺加速：</strong> 按住 <kbd>Shift</kbd>/<kbd>J</kbd>/<kbd>X</kbd> 或「冲/攻」奔跑，跳得更远</li>
+              <li><strong>蹬墙跳：</strong> 贴墙下落时按跳跃键向反方向弹跳</li>
+              <li><strong>地面猛击 (Ground Pound)：</strong> 空中按 <kbd>S</kbd>/<kbd>↓</kbd> 强力下砸，可震碎下方砖块、压扁硬壳龟、重击开关</li>
+              <li><strong>钻水管：</strong> 站在绿/金水管口按 <kbd>S</kbd>/<kbd>↓</kbd> 进入隐藏奖励关</li>
+            </ul>
+          </section>
+          <section class="help-box">
+            <h3>变身道具与系统</h3>
+            <ul>
+              <li><strong>超级蘑菇：</strong> 变大并可顶碎砖块，可抵挡 1 次伤害</li>
+              <li><strong>火焰花：</strong> 按攻击键发射弹跳火球</li>
+              <li><strong>超级橡果 (Super Acorn)：</strong> 戴上橡果帽！空中长按跳跃可<strong>滑翔</strong>，空中再按一次可<strong>二段升空</strong>，按攻击键可<strong>360°尾旋</strong>弹开弹幕与砸砖</li>
+              <li><strong>无敌星星：</strong> 短时间内彩虹闪烁无敌，高速冲撞消灭一切敌人</li>
+              <li><strong>备用道具盒：</strong> 顶部 HUD 框会储存多余道具，按 <kbd>E</kbd>/<kbd>C</kbd> 或「道具」随时召唤</li>
+              <li><strong>星币收集：</strong> 每关隐藏 <strong>3 枚大星币</strong>，全收集可获得 S 级评价！</li>
+            </ul>
+          </section>
+        </div>
+        <div class="help-options">
+          <label class="toggle-opt"><input type="checkbox" id="opt-scanlines" /> 复古 CRT 扫描线效果</label>
+          <label class="toggle-opt"><input type="checkbox" id="opt-shake" checked /> 屏幕震动与打击感</label>
+          <label class="toggle-opt"><input type="checkbox" id="opt-lighting" checked /> 矿洞与城堡动态光影</label>
+          <div class="volume-opt">
+            <span>音量：</span>
+            <input type="range" id="opt-volume" min="0" max="100" value="65" />
+            <span id="opt-volume-val">65%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Classic script loading works seamlessly over both http:// and file:// -->
+  <script src="js/constants.js" defer></script>
+  <script src="js/sprites.js" defer></script>
+  <script src="js/audio.js" defer></script>
+  <script src="js/particles.js" defer></script>
+  <script src="js/levels.js" defer></script>
+  <script src="js/entities.js" defer></script>
+  <script src="js/renderer.js" defer></script>
+  <script src="js/game.js" defer></script>
+</body>
+</html>
