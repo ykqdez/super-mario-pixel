@@ -358,26 +358,72 @@ async function runBrowserTests() {
     check(bossRes.finalGameState === 'VICTORY', 'Stage 1-4 reaches VICTORY state after rescuing Peach', bossRes);
     await saveShot('stage_1_4_victory.png');
 
-    // 7. Mobile Landscape Layout & Virtual Controls Check (844x390 touch viewport)
+    // 7A. Mobile Portrait Mandatory Lock Check (390x844 touch viewport)
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+    await cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    const portraitCheck = await ev(`(() => {
+      const g = window.__MARIO_GAME__;
+      g.isTouch = true;
+      g.toggleTouchPad(true);
+      g.syncLayoutState();
+      const tBefore = g.time;
+      g.stepFixed(1/60);
+      const tAfter = g.time;
+      const banner = document.getElementById('rotate-banner');
+      const bannerVisible = !banner.classList.contains('hidden') && getComputedStyle(banner).display !== 'none';
+      const noDismissBtn = document.getElementById('btn-dismiss-rotate') === null;
+      return {
+        portraitLocked: g.portraitLocked,
+        pausedStep: tAfter === tBefore,
+        bannerVisible,
+        noDismissBtn,
+      };
+    })()`);
+    check(
+      portraitCheck.portraitLocked && portraitCheck.pausedStep && portraitCheck.bannerVisible && portraitCheck.noDismissBtn,
+      'Mobile portrait enforces mandatory landscape-only lock & pauses gameplay without bypass',
+      portraitCheck,
+    );
+    await saveShot('mobile_portrait_lock.png');
+
+    // 7B. Mobile Landscape Layout, Joystick Wheel, Corner Menu & Fullscreen Check (844x390 touch viewport)
     await cdp('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
     await cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-    const mobileCheck = await ev(`(() => {
+    const mobileCheck = await ev(`(async () => {
       const g = window.__MARIO_GAME__;
+      g.isTouch = true;
+      g.toggleTouchPad(true);
+      g.syncLayoutState();
       g.startStage(0);
       g.world.player.givePowerUp('acorn', g.world);
       g.world.player.x = 8 * 16;
       g.world.player.y = 15 * 16 - g.world.player.h;
       g.world.cameraX = 6 * 16;
-      // Show virtual controls as on touch device
-      const pad = document.getElementById('virtual-controls');
-      pad.classList.remove('hidden');
       g.stepFixed(1/60);
       g.render();
-      // Test virtual controls input mapping (right + jump + pause)
-      g.input.virtual.add('right');
+
+      // Test virtual joystick wheel via pointer drag to the right, then down
+      const joyZone = document.getElementById('vjoy-zone');
+      const joyBase = document.getElementById('vjoy-base');
+      const joyKnob = document.getElementById('vjoy-knob');
+      const br = joyBase.getBoundingClientRect();
+      const cx = br.left + br.width / 2;
+      const cy = br.top + br.height / 2;
+
+      joyZone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx + 32, clientY: cy, pointerType: 'mouse' }));
+      for (let i = 0; i < 12; i++) g.stepFixed(1/60);
+      const rightArrowActive = joyBase.querySelector('.vj-r').classList.contains('active');
+      const knobMoved = joyKnob.style.transform && !joyKnob.style.transform.includes('(0px, 0px)');
+      const movedRightByWheel = g.world.player.x > 8 * 16;
+
+      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx, clientY: cy + 34, pointerType: 'mouse' }));
+      const downArrowActive = joyBase.querySelector('.vj-d').classList.contains('active');
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cx, clientY: cy + 34, pointerType: 'mouse' }));
+      const clearedAfterRelease = !g.input.virtual.has('right') && !g.input.virtual.has('down');
+
+      // Test Jump & Pause virtual action buttons
       g.input.virtual.add('jump');
-      for (let i = 0; i < 10; i++) g.stepFixed(1/60);
-      const movedRight = g.world.player.x > 8 * 16;
+      for (let i = 0; i < 8; i++) g.stepFixed(1/60);
       const jumped = g.world.player.vy < 0 || !g.world.player.onGround;
       g.input.virtual.clear();
       g.input.virtual.add('pause');
@@ -385,13 +431,75 @@ async function runBrowserTests() {
       const pausedByVbtn = g.state === 'PAUSED';
       g.input.virtual.clear();
       g.state = 'PLAYING';
+
+      // Test corner fullscreen toggle (native FS or CSS immersive fallback)
+      document.getElementById('btn-corner-fs').click();
+      await new Promise((r) => setTimeout(r, 80));
+      const immersiveOn = document.body.classList.contains('is-immersive') || !!document.fullscreenElement;
+
+      // Test corner quick menu drawer open & close
+      document.getElementById('btn-corner-menu').click();
+      const qmOpened = !document.getElementById('quick-menu').classList.contains('hidden');
+      const pausedByQuickMenu = g.state === 'PAUSED';
+      document.getElementById('btn-close-quick').click();
+      const qmClosed = document.getElementById('quick-menu').classList.contains('hidden');
+      g.state = 'PLAYING';
       g.render();
-      const padVisible = !pad.classList.contains('hidden');
+
+      const topBarDisplay = getComputedStyle(document.querySelector('.top-bar')).display;
+      const footerDisplay = getComputedStyle(document.querySelector('.control-strip')).display;
+      const cornerBar = document.getElementById('corner-bar');
+      const cornerRect = cornerBar.getBoundingClientRect();
+      const frameRect = document.getElementById('canvas-frame').getBoundingClientRect();
+      const padVisible = !document.getElementById('virtual-controls').classList.contains('hidden');
       const rotateHidden = getComputedStyle(document.getElementById('rotate-banner')).display === 'none';
-      return { movedRight, jumped, pausedByVbtn, padVisible, rotateHidden };
+
+      return {
+        rightArrowActive,
+        knobMoved,
+        movedRightByWheel,
+        downArrowActive,
+        clearedAfterRelease,
+        jumped,
+        pausedByVbtn,
+        immersiveOn,
+        qmOpened,
+        pausedByQuickMenu,
+        qmClosed,
+        noBottomMenuBlocking: topBarDisplay === 'none' && footerDisplay === 'none',
+        cornerAtTop: cornerRect.top >= 0 && cornerRect.bottom < 70 && cornerRect.right <= 844,
+        canvasFullHeight: frameRect.height >= 380,
+        padVisible,
+        rotateHidden,
+      };
     })()`);
-    check(mobileCheck.movedRight && mobileCheck.jumped && mobileCheck.pausedByVbtn, 'Virtual gamepad D-pad, Jump & Pause work cleanly', mobileCheck);
-    check(mobileCheck.padVisible && mobileCheck.rotateHidden, 'Mobile landscape hides portrait rotate banner and displays virtual pad', mobileCheck);
+    check(
+      mobileCheck.rightArrowActive &&
+        mobileCheck.knobMoved &&
+        mobileCheck.movedRightByWheel &&
+        mobileCheck.downArrowActive &&
+        mobileCheck.clearedAfterRelease,
+      'Virtual joystick wheel responds to directional drag & moves/crouches Mario cleanly',
+      mobileCheck,
+    );
+    check(mobileCheck.jumped && mobileCheck.pausedByVbtn, 'Virtual action buttons Jump & Pause work cleanly', mobileCheck);
+    check(
+      mobileCheck.immersiveOn &&
+        mobileCheck.qmOpened &&
+        mobileCheck.pausedByQuickMenu &&
+        mobileCheck.qmClosed,
+      'Corner fullscreen toggle & quick-menu drawer work in mobile landscape',
+      mobileCheck,
+    );
+    check(
+      mobileCheck.noBottomMenuBlocking &&
+        mobileCheck.cornerAtTop &&
+        mobileCheck.canvasFullHeight &&
+        mobileCheck.padVisible &&
+        mobileCheck.rotateHidden,
+      'Mobile landscape hides bottom bar, keeps controls in top-right corner, and uses full height',
+      mobileCheck,
+    );
     await saveShot('mobile_landscape.png');
 
     check(browserErrors.length === 0, 'Zero browser console/runtime errors', browserErrors);

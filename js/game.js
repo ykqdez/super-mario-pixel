@@ -147,40 +147,80 @@
       this.lastTime = 0;
 
       this.isTouch = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
-      this.rotateDismissed = false;
+      this.portraitLocked = false;
+      this.immersive = false;
+      this.toastTimer = null;
 
       this.bindUI();
       this.applySettingsUI();
       this.initMobileSupport();
     }
 
-    initMobileSupport() {
-      const pad = document.getElementById('virtual-controls');
-      const touchBtn = document.getElementById('btn-touch-toggle');
-      if (this.isTouch) {
-        pad.classList.remove('hidden');
-        pad.setAttribute('aria-hidden', 'false');
-        touchBtn.classList.add('active');
-      }
-      const updateRotateBanner = () => {
-        const banner = document.getElementById('rotate-banner');
-        const isPortraitMobile = this.isTouch && !this.rotateDismissed && window.innerHeight > window.innerWidth;
-        banner.classList.toggle('hidden', !isPortraitMobile);
-      };
-      updateRotateBanner();
-      window.addEventListener('resize', updateRotateBanner);
-      window.addEventListener('orientationchange', updateRotateBanner);
+    showToast(msg, duration = 2800) {
+      const el = document.getElementById('toast-msg');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(this.toastTimer);
+      this.toastTimer = setTimeout(() => el.classList.add('hidden'), duration);
+    }
 
-      document.getElementById('btn-dismiss-rotate').addEventListener('click', () => {
-        this.audio.init();
-        this.rotateDismissed = true;
-        updateRotateBanner();
+    syncLayoutState() {
+      const isPortrait = window.innerHeight > window.innerWidth;
+      const nativeFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+      const compactLandscape = window.innerHeight <= 540 && !isPortrait;
+      this.portraitLocked = this.isTouch && isPortrait;
+
+      const banner = document.getElementById('rotate-banner');
+      banner.classList.toggle('hidden', !this.portraitLocked);
+      if (this.portraitLocked) {
+        this.input.virtual.clear();
+        document.getElementById('quick-menu')?.classList.add('hidden');
+      }
+
+      const useImmersiveBody = this.immersive || nativeFs;
+      document.body.classList.toggle('is-immersive', useImmersiveBody);
+
+      const showCorner = !this.portraitLocked && (this.isTouch || useImmersiveBody || compactLandscape);
+      const cornerBar = document.getElementById('corner-bar');
+      cornerBar.classList.toggle('hidden', !showCorner);
+
+      const cornerFsBtn = document.getElementById('btn-corner-fs');
+      const fsActive = useImmersiveBody;
+      cornerFsBtn.textContent = fsActive ? '⛶ 退出' : '⛶ 全屏';
+      cornerFsBtn.classList.toggle('active', fsActive);
+
+      const topFsBtn = document.getElementById('btn-fullscreen');
+      topFsBtn.textContent = fsActive ? '退出全屏' : '全屏';
+      topFsBtn.classList.toggle('active', fsActive);
+
+      const qmFsBtn = document.getElementById('qm-fullscreen');
+      if (qmFsBtn) qmFsBtn.textContent = fsActive ? '退出全屏模式' : '进入全屏模式';
+    }
+
+    initMobileSupport() {
+      this.toggleTouchPad(this.isTouch);
+      this.syncLayoutState();
+
+      const onViewportChange = () => this.syncLayoutState();
+      window.addEventListener('resize', onViewportChange);
+      window.addEventListener('orientationchange', onViewportChange);
+      document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement) this.immersive = false;
+        this.syncLayoutState();
       });
+      document.addEventListener('webkitfullscreenchange', () => {
+        if (!document.webkitFullscreenElement) this.immersive = false;
+        this.syncLayoutState();
+      });
+
       document.getElementById('btn-enter-landscape').addEventListener('click', async () => {
         this.audio.init();
-        this.rotateDismissed = true;
-        updateRotateBanner();
         await this.toggleFullscreen(true);
+        this.syncLayoutState();
+        if (this.portraitLocked) {
+          this.showToast('若未自动横屏，请关闭手机竖屏锁定并横握设备');
+        }
       });
     }
 
@@ -263,23 +303,40 @@
         }
       });
 
-      // Top bar buttons
-      document.getElementById('btn-unlock-all').addEventListener('click', () => {
+      // Top bar & corner bar / quick menu buttons
+      const toggleUnlockAll = () => {
         this.save.unlockAll = !this.save.unlockAll;
         persistSave(this.save);
         this.applySettingsUI();
-      });
+      };
+      document.getElementById('btn-unlock-all').addEventListener('click', toggleUnlockAll);
+      document.getElementById('qm-unlock-all').addEventListener('click', toggleUnlockAll);
+
       document.getElementById('btn-mute').addEventListener('click', () => this.toggleMute());
-      document.getElementById('btn-touch-toggle').addEventListener('click', () => {
-        const pad = document.getElementById('virtual-controls');
-        pad.classList.toggle('hidden');
-        const visible = !pad.classList.contains('hidden');
-        pad.setAttribute('aria-hidden', String(!visible));
-        document.getElementById('btn-touch-toggle').classList.toggle('active', visible);
-      });
+      document.getElementById('qm-mute').addEventListener('click', () => this.toggleMute());
+
+      document.getElementById('btn-touch-toggle').addEventListener('click', () => this.toggleTouchPad());
+      document.getElementById('qm-touch').addEventListener('click', () => this.toggleTouchPad());
+
       document.getElementById('btn-help').addEventListener('click', () => this.toggleHelp(true));
       document.getElementById('btn-close-help').addEventListener('click', () => this.toggleHelp(false));
+      document.getElementById('qm-help').addEventListener('click', () => {
+        this.toggleQuickMenu(false);
+        this.toggleHelp(true);
+      });
+
       document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
+      document.getElementById('btn-corner-fs').addEventListener('click', () => this.toggleFullscreen());
+      document.getElementById('qm-fullscreen').addEventListener('click', () => {
+        this.toggleQuickMenu(false);
+        this.toggleFullscreen();
+      });
+
+      document.getElementById('btn-corner-menu').addEventListener('click', () => this.toggleQuickMenu());
+      document.getElementById('btn-close-quick').addEventListener('click', () => this.toggleQuickMenu(false));
+      document.getElementById('quick-menu').addEventListener('click', (ev) => {
+        if (ev.target.id === 'quick-menu') this.toggleQuickMenu(false);
+      });
 
       // Options checkboxes & slider
       document.getElementById('opt-scanlines').addEventListener('change', (e) => {
@@ -303,32 +360,143 @@
         persistSave(this.save);
       });
 
-      // Multi-touch ergonomic virtual gamepad (supports thumb-sliding on D-pad & multi-finger actions!)
+      // Multi-touch ergonomic virtual joystick wheel + action buttons
       const pad = document.getElementById('virtual-controls');
+      const joyZone = document.getElementById('vjoy-zone');
+      const joyBase = document.getElementById('vjoy-base');
+      const joyKnob = document.getElementById('vjoy-knob');
+      const arrU = joyBase.querySelector('.vj-u');
+      const arrR = joyBase.querySelector('.vj-r');
+      const arrD = joyBase.querySelector('.vj-d');
+      const arrL = joyBase.querySelector('.vj-l');
       const allVbtns = [...document.querySelectorAll('.vbtn')];
+
+      let joyTouchId = null;
+      let mouseJoyActive = false;
+
+      const setDirKey = (key, arrowEl, active) => {
+        if (active) this.input.virtual.add(key);
+        else this.input.virtual.delete(key);
+        arrowEl.classList.toggle('active', active);
+      };
+
+      const applyJoyVector = (dx, dy) => {
+        const rect = joyBase.getBoundingClientRect();
+        const maxR = Math.max(24, rect.width * 0.34);
+        const dist = Math.hypot(dx, dy);
+        const scale = dist > maxR && dist > 0 ? maxR / dist : 1;
+        const kx = dx * scale;
+        const ky = dy * scale;
+        joyKnob.style.transform = `translate(${kx.toFixed(1)}px, ${ky.toFixed(1)}px)`;
+        joyKnob.classList.add('active');
+
+        const dead = Math.max(9, rect.width * 0.1);
+        const strongDown = dy > rect.width * 0.24 && Math.abs(dx) < Math.abs(dy) * 0.45;
+        const leftOn = !strongDown && dx < -dead;
+        const rightOn = !strongDown && dx > dead;
+        const upOn = dy < -dead * 1.1 && Math.abs(dy) > Math.abs(dx) * 0.42;
+        const downOn = dy > dead * 1.05 && Math.abs(dy) > Math.abs(dx) * 0.4;
+
+        setDirKey('left', arrL, leftOn);
+        setDirKey('right', arrR, rightOn);
+        setDirKey('up', arrU, upOn);
+        setDirKey('down', arrD, downOn);
+      };
+
+      const resetJoy = () => {
+        joyTouchId = null;
+        mouseJoyActive = false;
+        joyKnob.style.transform = 'translate(0px, 0px)';
+        joyKnob.classList.remove('active');
+        setDirKey('left', arrL, false);
+        setDirKey('right', arrR, false);
+        setDirKey('up', arrU, false);
+        setDirKey('down', arrD, false);
+      };
+
+      const getBaseCenter = () => {
+        const r = joyBase.getBoundingClientRect();
+        return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+      };
+
+      const isInsideJoyZone = (x, y) => {
+        const r = joyZone.getBoundingClientRect();
+        const padPx = 14;
+        return x >= r.left - padPx && x <= r.right + padPx && y >= r.top - padPx && y <= r.bottom + padPx;
+      };
+
       const syncTouches = (ev) => {
         if (ev.cancelable) ev.preventDefault();
         this.audio.init();
-        const active = new Set();
+        if (ev.type === 'touchstart') {
+          for (let i = 0; i < ev.changedTouches.length; i++) {
+            const t = ev.changedTouches[i];
+            if (joyTouchId === null && isInsideJoyZone(t.clientX, t.clientY)) {
+              joyTouchId = t.identifier;
+              break;
+            }
+          }
+        }
+        let joyStillActive = false;
+        const activeBtns = new Set();
+        const { cx, cy } = getBaseCenter();
         for (let i = 0; i < ev.touches.length; i++) {
           const t = ev.touches[i];
-          const el = document.elementFromPoint(t.clientX, t.clientY)?.closest?.('.vbtn');
-          if (el && el.dataset.key) active.add(el.dataset.key);
+          if (t.identifier === joyTouchId) {
+            joyStillActive = true;
+            applyJoyVector(t.clientX - cx, t.clientY - cy);
+          } else {
+            const el = document.elementFromPoint(t.clientX, t.clientY)?.closest?.('.vbtn');
+            if (el && el.dataset.key) activeBtns.add(el.dataset.key);
+          }
+        }
+        if (joyTouchId !== null && !joyStillActive) {
+          resetJoy();
         }
         for (const btn of allVbtns) {
           const k = btn.dataset.key;
-          const isOn = active.has(k);
+          const isOn = activeBtns.has(k);
           btn.classList.toggle('pressed', isOn);
           if (isOn) this.input.virtual.add(k);
           else this.input.virtual.delete(k);
         }
       };
+
       pad.addEventListener('touchstart', syncTouches, { passive: false });
       pad.addEventListener('touchmove', syncTouches, { passive: false });
       pad.addEventListener('touchend', syncTouches, { passive: false });
       pad.addEventListener('touchcancel', syncTouches, { passive: false });
+      window.addEventListener('touchmove', (ev) => {
+        if (joyTouchId !== null) syncTouches(ev);
+      }, { passive: false });
+      window.addEventListener('touchend', (ev) => {
+        if (joyTouchId !== null) syncTouches(ev);
+      }, { passive: false });
+      window.addEventListener('touchcancel', (ev) => {
+        if (joyTouchId !== null) syncTouches(ev);
+      }, { passive: false });
 
-      // Mouse pointer fallback for desktop testing of virtual buttons
+      // Mouse pointer fallback for desktop testing of joystick wheel & virtual buttons
+      joyZone.addEventListener('pointerdown', (ev) => {
+        if (ev.pointerType === 'touch') return;
+        ev.preventDefault();
+        this.audio.init();
+        mouseJoyActive = true;
+        const { cx, cy } = getBaseCenter();
+        applyJoyVector(ev.clientX - cx, ev.clientY - cy);
+      });
+      window.addEventListener('pointermove', (ev) => {
+        if (!mouseJoyActive || ev.pointerType === 'touch') return;
+        const { cx, cy } = getBaseCenter();
+        applyJoyVector(ev.clientX - cx, ev.clientY - cy);
+      });
+      const stopMouseJoy = (ev) => {
+        if (!mouseJoyActive || ev.pointerType === 'touch') return;
+        resetJoy();
+      };
+      window.addEventListener('pointerup', stopMouseJoy);
+      window.addEventListener('pointercancel', stopMouseJoy);
+
       allVbtns.forEach((btn) => {
         const key = btn.dataset.key;
         btn.addEventListener('pointerdown', (ev) => {
@@ -349,13 +517,37 @@
       });
     }
 
+    toggleTouchPad(force) {
+      const pad = document.getElementById('virtual-controls');
+      const show = force !== undefined ? force : pad.classList.contains('hidden');
+      pad.classList.toggle('hidden', !show);
+      pad.setAttribute('aria-hidden', String(!show));
+      document.getElementById('btn-touch-toggle').classList.toggle('active', show);
+      const qmTouch = document.getElementById('qm-touch');
+      if (qmTouch) qmTouch.textContent = `虚拟摇杆: ${show ? '开' : '关'}`;
+    }
+
+    toggleQuickMenu(force) {
+      const qm = document.getElementById('quick-menu');
+      const show = force !== undefined ? force : qm.classList.contains('hidden');
+      qm.classList.toggle('hidden', !show);
+      if (show && this.state === GAME_STATE.PLAYING) {
+        this.state = GAME_STATE.PAUSED;
+      }
+    }
+
     applySettingsUI() {
       const s = this.save.settings;
       this.audio.setMuted(s.muted);
       this.audio.setVolume(s.volume / 100);
-      document.getElementById('btn-mute').textContent = `声音: ${s.muted ? '关' : '开'}`;
-      document.getElementById('btn-unlock-all').textContent = `全关解锁: ${this.save.unlockAll ? '开' : '关'}`;
+      const muteLabel = `声音: ${s.muted ? '关' : '开'}`;
+      const unlockLabel = `全关解锁: ${this.save.unlockAll ? '开' : '关'}`;
+      document.getElementById('btn-mute').textContent = muteLabel;
+      document.getElementById('qm-mute').textContent = muteLabel;
+      document.getElementById('btn-unlock-all').textContent = unlockLabel;
       document.getElementById('btn-unlock-all').classList.toggle('active', this.save.unlockAll);
+      document.getElementById('qm-unlock-all').textContent = unlockLabel;
+      document.getElementById('qm-unlock-all').classList.toggle('active', this.save.unlockAll);
       document.getElementById('scanline-overlay').classList.toggle('hidden', !s.scanlines);
       document.getElementById('opt-scanlines').checked = s.scanlines;
       document.getElementById('opt-shake').checked = s.shake;
@@ -381,17 +573,49 @@
     }
 
     async toggleFullscreen(forceEnter = false) {
+      const root = document.documentElement;
       const appEl = document.getElementById('app');
-      try {
-        if (!document.fullscreenElement || forceEnter) {
-          if (!document.fullscreenElement) {
-            await appEl.requestFullscreen?.();
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      const wantEnter = forceEnter ? true : !(fsEl || this.immersive);
+
+      if (wantEnter) {
+        this.immersive = true;
+        document.body.classList.add('is-immersive');
+        window.scrollTo(0, 1);
+
+        let nativeWorked = Boolean(fsEl);
+        if (!nativeWorked) {
+          const req =
+            root.requestFullscreen ||
+            root.webkitRequestFullscreen ||
+            appEl.requestFullscreen ||
+            appEl.webkitRequestFullscreen;
+          if (req) {
+            const target = root.requestFullscreen || root.webkitRequestFullscreen ? root : appEl;
+            try {
+              await req.call(target, { navigationUI: 'hide' });
+              nativeWorked = true;
+            } catch {
+              try {
+                await req.call(target);
+                nativeWorked = true;
+              } catch { /* iOS Safari or blocked orientation gesture */ }
+            }
           }
-          await screen.orientation?.lock?.('landscape').catch(() => {});
-        } else {
-          await document.exitFullscreen?.();
         }
-      } catch { /* ignore fullscreen/orientation errors on unsupported browsers */ }
+        await screen.orientation?.lock?.('landscape').catch(() => {});
+        if (!nativeWorked && this.isTouch) {
+          this.showToast('已进入沉浸铺满！若顶部仍有浏览器栏，可点分享→添加到主屏幕全屏玩');
+        }
+      } else {
+        this.immersive = false;
+        document.body.classList.remove('is-immersive');
+        try {
+          if (document.fullscreenElement) await document.exitFullscreen();
+          else if (document.webkitFullscreenElement) await document.webkitExitFullscreen?.();
+        } catch { /* ignore exit fullscreen errors */ }
+      }
+      this.syncLayoutState();
     }
 
     addScore(pts) {
@@ -552,6 +776,10 @@
     }
 
     stepFixed(dt) {
+      if (this.portraitLocked) {
+        this.input.poll();
+        return;
+      }
       this.time += dt;
       const inp = this.input.poll();
 

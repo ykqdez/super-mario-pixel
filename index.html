@@ -12,6 +12,7 @@
 </head>
 <body>
   <div id="app" class="app-shell">
+    <!-- Desktop Header Bar (hidden in mobile landscape & immersive mode so it never blocks gameplay) -->
     <header class="top-bar">
       <div class="brand">
         <span class="brand-badge">16-BIT PIXEL</span>
@@ -20,11 +21,17 @@
       <div class="top-actions">
         <button id="btn-unlock-all" class="ui-btn" title="解锁或恢复全部关卡进度">全关解锁: 关</button>
         <button id="btn-mute" class="ui-btn" title="切换音效/音乐 (M)">声音: 开</button>
-        <button id="btn-touch-toggle" class="ui-btn" title="显示/隐藏虚拟手柄">虚拟按键</button>
+        <button id="btn-touch-toggle" class="ui-btn" title="显示/隐藏虚拟手柄">虚拟摇杆</button>
         <button id="btn-help" class="ui-btn" title="查看操作与玩法说明 (H)">玩法指南</button>
         <button id="btn-fullscreen" class="ui-btn" title="全屏模式 (F)">全屏</button>
       </div>
     </header>
+
+    <!-- Compact Corner Floating Triggers (used in mobile landscape & fullscreen/immersive mode) -->
+    <div id="corner-bar" class="corner-bar hidden">
+      <button id="btn-corner-fs" class="corner-pill" title="全屏">⛶ 全屏</button>
+      <button id="btn-corner-menu" class="corner-pill" title="菜单与设置">⚙ 菜单</button>
+    </div>
 
     <main class="stage-wrap">
       <div id="canvas-frame" class="canvas-frame">
@@ -32,14 +39,19 @@
         <div id="scanline-overlay" class="scanline-overlay hidden"></div>
       </div>
 
-      <!-- Ergonomic Multi-Touch Virtual Gamepad (auto-shown on mobile/touch or toggled via button) -->
+      <!-- Multi-Touch Joystick Wheel + Action Pad -->
       <div id="virtual-controls" class="virtual-controls hidden" aria-hidden="true">
-        <div class="vpad-dpad">
-          <button class="vbtn vbtn-up" data-key="up" aria-label="上">▲</button>
-          <button class="vbtn vbtn-left" data-key="left" aria-label="左">◀</button>
-          <button class="vbtn vbtn-down" data-key="down" aria-label="下">▼</button>
-          <button class="vbtn vbtn-right" data-key="right" aria-label="右">▶</button>
+        <div id="vjoy-zone" class="vjoy-zone">
+          <div id="vjoy-base" class="vjoy-base">
+            <span class="vj-arr vj-u">▲</span>
+            <span class="vj-arr vj-r">▶</span>
+            <span class="vj-arr vj-d">▼</span>
+            <span class="vj-arr vj-l">◀</span>
+            <div class="vjoy-ring"></div>
+            <div id="vjoy-knob" class="vjoy-knob"></div>
+          </div>
         </div>
+
         <div class="vpad-actions">
           <div class="vpad-aux">
             <button class="vbtn vbtn-mini" data-key="pause" aria-label="暂停">⏸</button>
@@ -63,16 +75,33 @@
     </footer>
   </div>
 
-  <!-- Portrait Mobile Suggestion Banner -->
-  <div id="rotate-banner" class="rotate-banner hidden">
-    <div class="rotate-card">
-      <div class="rotate-icon">📱↻</div>
-      <h2>推荐手机横屏游玩</h2>
-      <p>旋转手机进入横屏后，画面与左右拇指按键会自动铺满适配，手感更佳！</p>
-      <div class="rotate-actions">
-        <button id="btn-enter-landscape" class="ui-btn active">尝试横屏全屏</button>
-        <button id="btn-dismiss-rotate" class="ui-btn">竖屏继续</button>
+  <!-- Toast Notice -->
+  <div id="toast-msg" class="toast-msg hidden"></div>
+
+  <!-- Quick Menu Drawer for Mobile Landscape / Fullscreen -->
+  <div id="quick-menu" class="modal hidden" role="dialog" aria-modal="true" aria-label="快捷菜单">
+    <div class="quick-card">
+      <div class="modal-head">
+        <h2>游戏设置与菜单</h2>
+        <button id="btn-close-quick" class="ui-btn">返回游戏</button>
       </div>
+      <div class="quick-list">
+        <button id="qm-unlock-all" class="ui-btn quick-item">全关解锁: 关</button>
+        <button id="qm-mute" class="ui-btn quick-item">声音: 开</button>
+        <button id="qm-touch" class="ui-btn quick-item">虚拟摇杆: 开</button>
+        <button id="qm-fullscreen" class="ui-btn quick-item">切换全屏</button>
+        <button id="qm-help" class="ui-btn quick-item">玩法指南与画面选项</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mandatory Landscape Lock Gate (strictly enforces landscape-only play on portrait mobile) -->
+  <div id="rotate-banner" class="rotate-banner hidden" role="dialog" aria-modal="true">
+    <div class="rotate-card">
+      <div class="rotate-phone">📱</div>
+      <h2>仅支持横屏游玩</h2>
+      <p>请关闭手机竖屏锁定并将设备横向旋转，即可自动进入游戏画面。</p>
+      <button id="btn-enter-landscape" class="ui-btn active">点击尝试自动横屏全屏</button>
     </div>
   </div>
 
@@ -88,12 +117,12 @@
           <section class="help-box">
             <h3>基础与进阶动作</h3>
             <ul>
-              <li><strong>移动 / 急停：</strong> <kbd>A</kbd><kbd>D</kbd> 或 <kbd>←</kbd><kbd>→</kbd>（触屏滑动左侧方向键）</li>
+              <li><strong>移动 / 急停：</strong> <kbd>A</kbd><kbd>D</kbd> 或 <kbd>←</kbd><kbd>→</kbd>（手机端拖动左侧轮盘摇杆）</li>
               <li><strong>可变高度跳跃：</strong> 轻点短跳，长按 <kbd>Space</kbd>/<kbd>W</kbd>/<kbd>Z</kbd>/<kbd>K</kbd> 或「跳」高跳</li>
               <li><strong>冲刺加速：</strong> 按住 <kbd>Shift</kbd>/<kbd>J</kbd>/<kbd>X</kbd> 或「冲/攻」奔跑，跳得更远</li>
               <li><strong>蹬墙跳：</strong> 贴墙下落时按跳跃键向反方向弹跳</li>
-              <li><strong>地面猛击 (Ground Pound)：</strong> 空中按 <kbd>S</kbd>/<kbd>↓</kbd> 强力下砸，可震碎下方砖块、压扁硬壳龟、重击开关</li>
-              <li><strong>钻水管：</strong> 站在绿/金水管口按 <kbd>S</kbd>/<kbd>↓</kbd> 进入隐藏奖励关</li>
+              <li><strong>地面猛击 (Ground Pound)：</strong> 空中按 <kbd>S</kbd>/<kbd>↓</kbd>（轮盘向下拉）强力下砸</li>
+              <li><strong>钻水管：</strong> 站在绿/金水管口按 <kbd>S</kbd>/<kbd>↓</kbd>（轮盘向下拉）进入隐藏奖励关</li>
             </ul>
           </section>
           <section class="help-box">
