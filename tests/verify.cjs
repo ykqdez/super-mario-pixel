@@ -402,24 +402,38 @@ async function runBrowserTests() {
       g.stepFixed(1/60);
       g.render();
 
-      // Test virtual joystick wheel via pointer drag to the right, then down
+      // Test floating non-fixed virtual joystick wheel: touch away from corner (210, 170)
       const joyZone = document.getElementById('vjoy-zone');
       const joyBase = document.getElementById('vjoy-base');
       const joyKnob = document.getElementById('vjoy-knob');
-      const br = joyBase.getBoundingClientRect();
-      const cx = br.left + br.width / 2;
-      const cy = br.top + br.height / 2;
+      const idleRect = joyBase.getBoundingClientRect();
 
-      joyZone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: cx + 32, clientY: cy, pointerType: 'mouse' }));
+      joyZone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 210, clientY: 170, pointerType: 'mouse' }));
+      const spawnedRect = joyBase.getBoundingClientRect();
+      const spawnedCenterX = spawnedRect.left + spawnedRect.width / 2;
+      const spawnedCenterY = spawnedRect.top + spawnedRect.height / 2;
+      const floatedNearTap =
+        joyBase.classList.contains('floating') &&
+        Math.abs(spawnedCenterX - 210) < 2 &&
+        Math.abs(spawnedCenterY - 170) < 2 &&
+        Math.hypot(spawnedRect.left - idleRect.left, spawnedRect.top - idleRect.top) > 40;
+
+      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 242, clientY: 170, pointerType: 'mouse' }));
       for (let i = 0; i < 12; i++) g.stepFixed(1/60);
       const rightArrowActive = joyBase.querySelector('.vj-r').classList.contains('active');
       const knobMoved = joyKnob.style.transform && !joyKnob.style.transform.includes('(0px, 0px)');
       const movedRightByWheel = g.world.player.x > 8 * 16;
 
-      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx, clientY: cy + 34, pointerType: 'mouse' }));
+      // Drag far beyond rim to verify smooth dynamic base follow
+      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 305, clientY: 170, pointerType: 'mouse' }));
+      const followedRect = joyBase.getBoundingClientRect();
+      const followedCenterX = followedRect.left + followedRect.width / 2;
+      const baseFollowedThumb = followedCenterX > spawnedCenterX + 12;
+
+      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: followedCenterX, clientY: spawnedCenterY + 34, pointerType: 'mouse' }));
       const downArrowActive = joyBase.querySelector('.vj-d').classList.contains('active');
-      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cx, clientY: cy + 34, pointerType: 'mouse' }));
-      const clearedAfterRelease = !g.input.virtual.has('right') && !g.input.virtual.has('down');
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: followedCenterX, clientY: spawnedCenterY + 34, pointerType: 'mouse' }));
+      const clearedAfterRelease = !joyBase.classList.contains('floating') && !g.input.virtual.has('right') && !g.input.virtual.has('down');
 
       // Test Jump & Pause virtual action buttons
       g.input.virtual.add('jump');
@@ -446,6 +460,23 @@ async function runBrowserTests() {
       g.state = 'PLAYING';
       g.render();
 
+      // Test non-dragged tap passthrough inside left vjoy-zone on Title overlay
+      g.state = 'TITLE';
+      g.menuIdx = 0;
+      const tapRect = document.getElementById('game-canvas').getBoundingClientRect();
+      const titleOptX = tapRect.left + tapRect.width * (180 / 480);
+      const titleOptY = tapRect.top + tapRect.height * (135 / 272);
+      joyZone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: titleOptX, clientY: titleOptY, pointerType: 'mouse' }));
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: titleOptX, clientY: titleOptY, pointerType: 'mouse' }));
+      const tapStartedGameFromZone = g.state === 'PLAYING';
+      g.startStage(0);
+      g.world.player.givePowerUp('acorn', g.world);
+      g.world.player.x = 8 * 16;
+      g.world.player.y = 15 * 16 - g.world.player.h;
+      g.world.cameraX = 6 * 16;
+      g.stepFixed(1/60);
+      g.render();
+
       const topBarDisplay = getComputedStyle(document.querySelector('.top-bar')).display;
       const footerDisplay = getComputedStyle(document.querySelector('.control-strip')).display;
       const cornerBar = document.getElementById('corner-bar');
@@ -455,9 +486,11 @@ async function runBrowserTests() {
       const rotateHidden = getComputedStyle(document.getElementById('rotate-banner')).display === 'none';
 
       return {
+        floatedNearTap,
         rightArrowActive,
         knobMoved,
         movedRightByWheel,
+        baseFollowedThumb,
         downArrowActive,
         clearedAfterRelease,
         jumped,
@@ -466,6 +499,7 @@ async function runBrowserTests() {
         qmOpened,
         pausedByQuickMenu,
         qmClosed,
+        tapStartedGameFromZone,
         noBottomMenuBlocking: topBarDisplay === 'none' && footerDisplay === 'none',
         cornerAtTop: cornerRect.top >= 0 && cornerRect.bottom < 70 && cornerRect.right <= 844,
         canvasFullHeight: frameRect.height >= 380,
@@ -474,14 +508,17 @@ async function runBrowserTests() {
       };
     })()`);
     check(
-      mobileCheck.rightArrowActive &&
+      mobileCheck.floatedNearTap &&
+        mobileCheck.rightArrowActive &&
         mobileCheck.knobMoved &&
         mobileCheck.movedRightByWheel &&
+        mobileCheck.baseFollowedThumb &&
         mobileCheck.downArrowActive &&
         mobileCheck.clearedAfterRelease,
-      'Virtual joystick wheel responds to directional drag & moves/crouches Mario cleanly',
+      'Floating non-fixed joystick wheel spawns at touch point, follows thumb, & moves/crouches cleanly',
       mobileCheck,
     );
+    check(mobileCheck.tapStartedGameFromZone, 'Left touch zone allows tap-through on Title/Overworld menus', mobileCheck);
     check(mobileCheck.jumped && mobileCheck.pausedByVbtn, 'Virtual action buttons Jump & Pause work cleanly', mobileCheck);
     check(
       mobileCheck.immersiveOn &&

@@ -253,54 +253,13 @@
 
       // Tap / Click directly on Canvas across Title, Overworld, Toad House, Pause & Result overlays
       this.canvas.addEventListener('pointerdown', (e) => {
-        this.audio.init();
-        const rect = this.canvas.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * VIRTUAL_WIDTH;
-        const y = ((e.clientY - rect.top) / rect.height) * VIRTUAL_HEIGHT;
-
-        if (this.state === GAME_STATE.OVERWORLD) {
-          this.nodes.forEach((n, idx) => {
-            if (Math.hypot(x - n.x, y - n.y) < 18) {
-              if (this.mapCursor === idx) this.enterOverworldNode();
-              else this.mapCursor = idx;
-            }
-          });
-        } else if (this.state === GAME_STATE.TITLE) {
-          if (x >= 130 && x <= 350 && y >= 122 && y <= 198) {
-            const idx = Math.floor((y - 128) / 21);
-            if (idx >= 0 && idx < 3) {
-              this.menuIdx = idx;
-              this.activateTitleOption();
-            }
+        if (e.pointerType === 'touch' && !document.getElementById('virtual-controls').classList.contains('hidden')) {
+          const jzr = document.getElementById('vjoy-zone').getBoundingClientRect();
+          if (e.clientX >= jzr.left && e.clientX <= jzr.right && e.clientY >= jzr.top && e.clientY <= jzr.bottom) {
+            return; // Handled via vjoy-zone tap-through on non-dragged release
           }
-        } else if (this.state === GAME_STATE.TOAD_HOUSE) {
-          if (this.toadState.openedIdx === -1) {
-            for (let i = 0; i < 3; i++) {
-              const cx = 148 + i * 76;
-              if (x >= cx - 8 && x <= cx + 40 && y >= 136 && y <= 180) {
-                this.toadState.cursor = i;
-                this.openToadChest();
-                return;
-              }
-            }
-          } else {
-            this.state = GAME_STATE.OVERWORLD;
-          }
-        } else if (this.state === GAME_STATE.PAUSED) {
-          if (x >= 140 && x <= 340 && y >= 96 && y <= 185) {
-            const idx = Math.floor((y - 98) / 26);
-            if (idx >= 0 && idx < 3) {
-              this.pauseIdx = idx;
-              this.confirmPauseOption();
-            }
-          }
-        } else if (
-          this.state === GAME_STATE.STAGE_CLEAR ||
-          this.state === GAME_STATE.GAME_OVER ||
-          this.state === GAME_STATE.VICTORY
-        ) {
-          this.advanceAfterOutcome();
         }
+        this.handleCanvasTap(e.clientX, e.clientY);
       });
 
       // Top bar & corner bar / quick menu buttons
@@ -373,6 +332,12 @@
 
       let joyTouchId = null;
       let mouseJoyActive = false;
+      let joyActive = false;
+      let joyAnchorX = 0;
+      let joyAnchorY = 0;
+      let joyStartX = 0;
+      let joyStartY = 0;
+      let joyDragged = false;
 
       const setDirKey = (key, arrowEl, active) => {
         if (active) this.input.virtual.add(key);
@@ -380,18 +345,66 @@
         arrowEl.classList.toggle('active', active);
       };
 
-      const applyJoyVector = (dx, dy) => {
-        const rect = joyBase.getBoundingClientRect();
-        const maxR = Math.max(24, rect.width * 0.34);
+      const clampAnchor = (x, y) => {
+        const w = joyBase.offsetWidth || 106;
+        const half = w / 2;
+        const minX = half * 0.65;
+        const maxX = Math.max(minX + 20, window.innerWidth * 0.46 - half * 0.35);
+        const minY = 44 + half * 0.55;
+        const maxY = Math.max(minY + 20, window.innerHeight - half * 0.65);
+        return {
+          ax: Math.max(minX, Math.min(maxX, x)),
+          ay: Math.max(minY, Math.min(maxY, y)),
+        };
+      };
+
+      const activateJoyVisual = (ax, ay) => {
+        joyActive = true;
+        joyBase.classList.add('floating');
+        joyBase.style.left = `${ax.toFixed(1)}px`;
+        joyBase.style.top = `${ay.toFixed(1)}px`;
+      };
+
+      const applyJoyAt = (clientX, clientY) => {
+        if (Math.hypot(clientX - joyStartX, clientY - joyStartY) > 9) {
+          joyDragged = true;
+        }
+        if (!joyActive) {
+          if (!joyDragged) return;
+          activateJoyVisual(joyAnchorX, joyAnchorY);
+        }
+
+        const r = joyBase.offsetWidth || 106;
+        const maxR = Math.max(24, r * 0.34);
+        const leash = maxR + 18;
+
+        let dx = clientX - joyAnchorX;
+        let dy = clientY - joyAnchorY;
         const dist = Math.hypot(dx, dy);
-        const scale = dist > maxR && dist > 0 ? maxR / dist : 1;
+
+        // Smooth dynamic base follow when dragging far beyond the rim
+        if (dist > leash && dist > 0) {
+          const clamped = clampAnchor(
+            clientX - (dx / dist) * leash,
+            clientY - (dy / dist) * leash,
+          );
+          joyAnchorX = clamped.ax;
+          joyAnchorY = clamped.ay;
+          joyBase.style.left = `${joyAnchorX.toFixed(1)}px`;
+          joyBase.style.top = `${joyAnchorY.toFixed(1)}px`;
+          dx = clientX - joyAnchorX;
+          dy = clientY - joyAnchorY;
+        }
+
+        const clampedDist = Math.hypot(dx, dy);
+        const scale = clampedDist > maxR && clampedDist > 0 ? maxR / clampedDist : 1;
         const kx = dx * scale;
         const ky = dy * scale;
         joyKnob.style.transform = `translate(${kx.toFixed(1)}px, ${ky.toFixed(1)}px)`;
         joyKnob.classList.add('active');
 
-        const dead = Math.max(9, rect.width * 0.1);
-        const strongDown = dy > rect.width * 0.24 && Math.abs(dx) < Math.abs(dy) * 0.45;
+        const dead = Math.max(9, r * 0.1);
+        const strongDown = dy > r * 0.24 && Math.abs(dx) < Math.abs(dy) * 0.45;
         const leftOn = !strongDown && dx < -dead;
         const rightOn = !strongDown && dx > dead;
         const upOn = dy < -dead * 1.1 && Math.abs(dy) > Math.abs(dx) * 0.42;
@@ -403,26 +416,44 @@
         setDirKey('down', arrD, downOn);
       };
 
-      const resetJoy = () => {
+      const beginJoy = (clientX, clientY) => {
+        joyStartX = clientX;
+        joyStartY = clientY;
+        joyDragged = false;
+        const { ax, ay } = clampAnchor(clientX, clientY);
+        joyAnchorX = ax;
+        joyAnchorY = ay;
+        if (this.state === GAME_STATE.PLAYING) {
+          activateJoyVisual(ax, ay);
+          applyJoyAt(clientX, clientY);
+        }
+      };
+
+      const resetJoy = (allowMenuTap = false) => {
+        const shouldTap = allowMenuTap && !joyDragged && this.state !== GAME_STATE.PLAYING;
+        const tapX = joyStartX;
+        const tapY = joyStartY;
         joyTouchId = null;
         mouseJoyActive = false;
+        joyActive = false;
+        joyDragged = false;
+        joyBase.classList.remove('floating');
+        joyBase.style.left = '';
+        joyBase.style.top = '';
         joyKnob.style.transform = 'translate(0px, 0px)';
         joyKnob.classList.remove('active');
         setDirKey('left', arrL, false);
         setDirKey('right', arrR, false);
         setDirKey('up', arrU, false);
         setDirKey('down', arrD, false);
-      };
-
-      const getBaseCenter = () => {
-        const r = joyBase.getBoundingClientRect();
-        return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+        if (shouldTap) {
+          this.handleCanvasTap(tapX, tapY);
+        }
       };
 
       const isInsideJoyZone = (x, y) => {
         const r = joyZone.getBoundingClientRect();
-        const padPx = 14;
-        return x >= r.left - padPx && x <= r.right + padPx && y >= r.top - padPx && y <= r.bottom + padPx;
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
       };
 
       const syncTouches = (ev) => {
@@ -431,27 +462,28 @@
         if (ev.type === 'touchstart') {
           for (let i = 0; i < ev.changedTouches.length; i++) {
             const t = ev.changedTouches[i];
-            if (joyTouchId === null && isInsideJoyZone(t.clientX, t.clientY)) {
+            const btnHit = document.elementFromPoint(t.clientX, t.clientY)?.closest?.('.vbtn');
+            if (!btnHit && joyTouchId === null && isInsideJoyZone(t.clientX, t.clientY)) {
               joyTouchId = t.identifier;
+              beginJoy(t.clientX, t.clientY);
               break;
             }
           }
         }
         let joyStillActive = false;
         const activeBtns = new Set();
-        const { cx, cy } = getBaseCenter();
         for (let i = 0; i < ev.touches.length; i++) {
           const t = ev.touches[i];
           if (t.identifier === joyTouchId) {
             joyStillActive = true;
-            applyJoyVector(t.clientX - cx, t.clientY - cy);
+            applyJoyAt(t.clientX, t.clientY);
           } else {
             const el = document.elementFromPoint(t.clientX, t.clientY)?.closest?.('.vbtn');
             if (el && el.dataset.key) activeBtns.add(el.dataset.key);
           }
         }
         if (joyTouchId !== null && !joyStillActive) {
-          resetJoy();
+          resetJoy(ev.type === 'touchend');
         }
         for (const btn of allVbtns) {
           const k = btn.dataset.key;
@@ -467,32 +499,30 @@
       pad.addEventListener('touchend', syncTouches, { passive: false });
       pad.addEventListener('touchcancel', syncTouches, { passive: false });
       window.addEventListener('touchmove', (ev) => {
-        if (joyTouchId !== null) syncTouches(ev);
+        if (joyTouchId !== null && !pad.contains(ev.target)) syncTouches(ev);
       }, { passive: false });
       window.addEventListener('touchend', (ev) => {
-        if (joyTouchId !== null) syncTouches(ev);
+        if (joyTouchId !== null && !pad.contains(ev.target)) syncTouches(ev);
       }, { passive: false });
       window.addEventListener('touchcancel', (ev) => {
-        if (joyTouchId !== null) syncTouches(ev);
+        if (joyTouchId !== null && !pad.contains(ev.target)) syncTouches(ev);
       }, { passive: false });
 
-      // Mouse pointer fallback for desktop testing of joystick wheel & virtual buttons
+      // Mouse pointer fallback for desktop testing of floating joystick wheel & virtual buttons
       joyZone.addEventListener('pointerdown', (ev) => {
         if (ev.pointerType === 'touch') return;
         ev.preventDefault();
         this.audio.init();
         mouseJoyActive = true;
-        const { cx, cy } = getBaseCenter();
-        applyJoyVector(ev.clientX - cx, ev.clientY - cy);
+        beginJoy(ev.clientX, ev.clientY);
       });
       window.addEventListener('pointermove', (ev) => {
         if (!mouseJoyActive || ev.pointerType === 'touch') return;
-        const { cx, cy } = getBaseCenter();
-        applyJoyVector(ev.clientX - cx, ev.clientY - cy);
+        applyJoyAt(ev.clientX, ev.clientY);
       });
       const stopMouseJoy = (ev) => {
         if (!mouseJoyActive || ev.pointerType === 'touch') return;
-        resetJoy();
+        resetJoy(ev.type === 'pointerup');
       };
       window.addEventListener('pointerup', stopMouseJoy);
       window.addEventListener('pointercancel', stopMouseJoy);
@@ -515,6 +545,58 @@
         btn.addEventListener('pointerleave', releaseMouse);
         btn.addEventListener('pointercancel', releaseMouse);
       });
+    }
+
+    handleCanvasTap(clientX, clientY) {
+      this.audio.init();
+      const rect = this.canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const x = ((clientX - rect.left) / rect.width) * VIRTUAL_WIDTH;
+      const y = ((clientY - rect.top) / rect.height) * VIRTUAL_HEIGHT;
+
+      if (this.state === GAME_STATE.OVERWORLD) {
+        this.nodes.forEach((n, idx) => {
+          if (Math.hypot(x - n.x, y - n.y) < 18) {
+            if (this.mapCursor === idx) this.enterOverworldNode();
+            else this.mapCursor = idx;
+          }
+        });
+      } else if (this.state === GAME_STATE.TITLE) {
+        if (x >= 130 && x <= 350 && y >= 122 && y <= 198) {
+          const idx = Math.floor((y - 128) / 21);
+          if (idx >= 0 && idx < 3) {
+            this.menuIdx = idx;
+            this.activateTitleOption();
+          }
+        }
+      } else if (this.state === GAME_STATE.TOAD_HOUSE) {
+        if (this.toadState.openedIdx === -1) {
+          for (let i = 0; i < 3; i++) {
+            const cx = 148 + i * 76;
+            if (x >= cx - 8 && x <= cx + 40 && y >= 136 && y <= 180) {
+              this.toadState.cursor = i;
+              this.openToadChest();
+              return;
+            }
+          }
+        } else {
+          this.state = GAME_STATE.OVERWORLD;
+        }
+      } else if (this.state === GAME_STATE.PAUSED) {
+        if (x >= 140 && x <= 340 && y >= 96 && y <= 185) {
+          const idx = Math.floor((y - 98) / 26);
+          if (idx >= 0 && idx < 3) {
+            this.pauseIdx = idx;
+            this.confirmPauseOption();
+          }
+        }
+      } else if (
+        this.state === GAME_STATE.STAGE_CLEAR ||
+        this.state === GAME_STATE.GAME_OVER ||
+        this.state === GAME_STATE.VICTORY
+      ) {
+        this.advanceAfterOutcome();
+      }
     }
 
     toggleTouchPad(force) {
